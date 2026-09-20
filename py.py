@@ -1084,6 +1084,16 @@ OUT_OF_PROMPTS_LINE = (
 )
 
 
+# Adrian's sign-off, appended to the answer he gives to the LAST permitted
+# question. Without it the interrogation simply stops responding, and the
+# player never sees him end it — the shutter comes down between turns with no
+# warning. He gets up and leaves on screen instead.
+CLOSING_LINE = (
+    "That's it. I've given you my whole evening and you've given me nothing "
+    "but insinuation. I'm leaving — anything else goes through my lawyer."
+)
+
+
 def out_of_prompts_response(state: GameState) -> str:
     """In-character line for a question asked after the budget is spent.
 
@@ -1229,6 +1239,15 @@ async def process_turn(question: str, state: GameState) -> dict:
 
     # 7. Generate Adrian's response (Section 45: generated AFTER state updates!)
     adrian_res = await ask_adrian_with_validator(question, state, pressure_point, category=analysis["category"])
+
+    # 7b. The last permitted question still gets a real answer, but Adrian ends
+    # the interview on screen rather than going silent between turns. A player
+    # who spends their final question deserves to see him get up and leave.
+    # A confession is already an ending of its own and is never appended to.
+    if state.status == "OUT_OF_PROMPTS" and adrian_res.get("success") and adrian_res.get("answer"):
+        adrian_res["answer"] = adrian_res["answer"] + "\n\n" + CLOSING_LINE
+
+
 
     # 8. Record turn in internal debug ledger (Section 30)
     ledger_entry = {
