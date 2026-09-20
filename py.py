@@ -101,6 +101,11 @@ NORMAL_CONFESSION_THRESHOLD = 85
 CASE_SOLVED_THRESHOLD = 75
 REQUIRED_CASE_SCORE = 90
 
+# Prompt budget (Section 9): the investigator gets this many questions per
+# session before the interrogation ends without a confession. Defined once
+# here so server.py never duplicates the literal.
+MAX_PROMPTS = 15
+
 
 # ============================================================
 # EVIDENCE METADATA (Section 6)
@@ -200,7 +205,7 @@ class GameState:
         self.turn = 0
         self.stress = 0
         self.stress_state = "CALM"
-        self.status = "ACTIVE"  # ACTIVE, CONFESSION, TIMEOUT, DISQUALIFIED
+        self.status = "ACTIVE"  # ACTIVE, CONFESSION, TIMEOUT, OUT_OF_PROMPTS, DISQUALIFIED
 
         # 4 Discrete State Systems (Section 3)
         self.evidence_revealed = set()
@@ -1070,6 +1075,24 @@ def deflect_off_topic(state: GameState) -> str:
     return chosen
 
 
+# Adrian's line once the investigator is out of questions and did not get a
+# confession. He does not know about "prompts" — from his side the interview
+# is simply over, and his lawyer instincts kick in immediately.
+OUT_OF_PROMPTS_LINE = (
+    "We're done here. That's everything you're getting from me without my "
+    "lawyer in the room."
+)
+
+
+def out_of_prompts_response(state: GameState) -> str:
+    """In-character line for a question asked after the budget is spent.
+
+    Mirrors deflect_off_topic's shape rather than returning a system-voice
+    error: the fiction (an interrogation that has ended) stays intact.
+    """
+    return OUT_OF_PROMPTS_LINE
+
+
 async def ask_adrian_with_validator(question: str, state: GameState, pressure_point: str, category: str = "RELEVANT") -> dict:
     start_time = time.perf_counter()
 
@@ -1194,6 +1217,12 @@ async def process_turn(question: str, state: GameState) -> dict:
     if check_confession_eligibility(state):
         state.status = "CONFESSION"
         state.confession_unlocked = True
+
+    # 5b. Budget exhaustion (Section 9). Checked AFTER confession eligibility
+    # so that a confession triggered by the final permitted question always
+    # wins — the outcome is CONFESSION, never exhaustion, in that case.
+    if state.status == "ACTIVE" and state.turn >= MAX_PROMPTS:
+        state.status = "OUT_OF_PROMPTS"
 
     # 6. Determine Pressure Point (Section 24)
     pressure_point = determine_pressure_point(analysis, state)
