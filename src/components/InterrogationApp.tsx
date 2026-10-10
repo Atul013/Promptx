@@ -136,29 +136,69 @@ export function InterrogationApp() {
   const [showEvidence, setShowEvidence] = useState(false);
   const [confessed, setConfessed] = useState(false);
   const [confessionText, setConfessionText] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setTime((current) => Math.max(0, current - 1)), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  // Fetch initial game state on mount
+  // Restore this tab's game or ask the server for a new isolated session.
   useEffect(() => {
-    fetch("/api/state")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.stress !== undefined) setStress(data.stress);
-        if (data.prompts_left !== undefined) setPrompts(data.prompts_left);
-        if (data.evidence_revealed) setEvidenceRevealed(data.evidence_revealed);
-        if (data.status === "CONFESSION") {
+    let active = true;
+
+    const applyState = (data: Record<string, unknown>) => {
+      if (!active) return;
+      if (typeof data["stress"] === "number") setStress(data["stress"]);
+      if (typeof data["prompts_left"] === "number") setPrompts(data["prompts_left"]);
+      if (Array.isArray(data["evidence_revealed"])) {
+        setEvidenceRevealed(
+          data["evidence_revealed"].filter(
+            (item): item is string => typeof item === "string"
+          )
+        );
+      }
+      if (data["status"] === "CONFESSION") {
           setConfessed(true);
         }
-      })
-      .catch((err) => console.warn("Could not load initial API state (is Python backend running?):", err));
+    };
+
+    const initializeSession = async () => {
+      try {
+        const savedSession = window.sessionStorage.getItem("promptx_session_id");
+        if (savedSession) {
+          const stateResponse = await fetch("/api/state", {
+            headers: { "X-Session-ID": savedSession },
+          });
+          if (stateResponse.ok) {
+            applyState(await stateResponse.json());
+            if (active) setSessionId(savedSession);
+            return;
+          }
+          window.sessionStorage.removeItem("promptx_session_id");
+        }
+
+        const sessionResponse = await fetch("/api/session", { method: "POST" });
+        if (!sessionResponse.ok) throw new Error(`HTTP ${sessionResponse.status}`);
+        const data = await sessionResponse.json();
+        if (typeof data.session_id !== "string") throw new Error("Missing session identifier");
+        window.sessionStorage.setItem("promptx_session_id", data.session_id);
+        if (active) setSessionId(data.session_id);
+        applyState(data);
+      } catch (err) {
+        console.warn("Could not initialize API session (is Python backend running?):", err);
+        if (active) setStatus("API ERROR - CHECK BACKEND");
+      }
+    };
+
+    initializeSession();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const sendQuestion = async () => {
-    if (!question.trim() || prompts <= 0 || loading || confessed) return;
+    if (!question.trim() || !sessionId || prompts <= 0 || loading || confessed) return;
 
     const currentQ = question.trim();
     setQuestion("");
@@ -168,7 +208,10 @@ export function InterrogationApp() {
     try {
       const res = await fetch("/api/interrogate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-ID": sessionId,
+        },
         body: JSON.stringify({ question: currentQ }),
       });
 
@@ -202,9 +245,14 @@ export function InterrogationApp() {
   };
 
   const resetGame = async () => {
+    if (!sessionId) return;
     setLoading(true);
     try {
-      await fetch("/api/reset", { method: "POST" });
+      const resetResponse = await fetch("/api/reset", {
+        method: "POST",
+        headers: { "X-Session-ID": sessionId },
+      });
+      if (!resetResponse.ok) throw new Error(`HTTP ${resetResponse.status}`);
       setStress(0);
       setPrompts(15);
       setResponse("Interrogation reset. Ask Adrian Vale your first question.");
@@ -302,7 +350,8 @@ export function InterrogationApp() {
           <textarea
             id="question"
             value={question}
-            disabled={loading || prompts <= 0 || confessed}
+            maxLength={500}
+            disabled={!sessionId || loading || prompts <= 0 || confessed}
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -321,7 +370,7 @@ export function InterrogationApp() {
           <button
             className="send-control"
             onClick={sendQuestion}
-            disabled={loading || prompts <= 0 || confessed}
+            disabled={!sessionId || loading || prompts <= 0 || confessed}
           >
             <Send size={22} fill="currentColor" /> {loading ? "SENDING..." : "SEND"}
           </button>
