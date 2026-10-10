@@ -39,3 +39,4 @@ dist-ssr
 *.zip
 __pycache__/
 *.pyc
+.venv/
