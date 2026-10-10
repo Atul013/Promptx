@@ -61,6 +61,22 @@ You interrogate **Adrian Vale**, Lead Data Analyst at Aegis Forensic Analytics, 
    ```
    Open `http://localhost:8080` in your browser.
 
+### Local API sessions
+
+The browser creates an isolated, in-memory game session with `POST /api/session`
+and sends the returned identifier in the `X-Session-ID` header for state,
+interrogation, and reset requests. Sessions expire after four hours of inactivity,
+and the local server retains at most 100 sessions. Questions are limited to 500
+characters; missing sessions, blank questions, and oversized questions return 4xx
+responses. Restarting the Python server clears all sessions.
+
+Run the offline API checks without a Gemini key:
+
+```bash
+python -m pip install -r requirements-dev.txt
+pytest -q
+```
+
 ## 🕹 How to Play
 
 - You have **15 prompts** to interrogate Adrian Vale
