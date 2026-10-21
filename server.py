@@ -19,6 +19,7 @@ except ImportError:
     from py import GameState, process_turn
 
 MAX_QUESTION_LENGTH = 500
+MAX_TURNS = 15
 MAX_SESSIONS = 100
 SESSION_TTL_SECONDS = 60 * 60 * 4
 
@@ -165,7 +166,16 @@ async def interrogate(
             "confession": True,
         }
 
+    if game_state.turn >= MAX_TURNS:
+        game_state.status = "TIMEOUT"
+        raise HTTPException(
+            status_code=409,
+            detail="Question limit reached. Reset the game to continue.",
+        )
+
     turn_result = await process_turn(question, game_state)
+    if game_state.turn >= MAX_TURNS and game_state.status == "ACTIVE":
+        game_state.status = "TIMEOUT"
     res = turn_result["adrian_res"]
 
     response_text = (
