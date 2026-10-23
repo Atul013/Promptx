@@ -100,6 +100,34 @@ def test_question_and_session_validation(client, server_module):
     ).status_code == 404
 
 
+def test_question_limit_stops_before_processing_sixteenth_turn(client, server_module):
+    session_id = new_session(client)
+    headers = {"X-Session-ID": session_id}
+    state = server_module.sessions.get(session_id)
+    state.turn = server_module.MAX_TURNS - 1
+
+    final_turn = client.post(
+        "/api/interrogate", headers=headers, json={"question": "Final question"}
+    )
+    assert final_turn.status_code == 200
+    assert final_turn.json()["turn"] == server_module.MAX_TURNS
+    assert final_turn.json()["prompts_left"] == 0
+    assert final_turn.json()["status"] == "TIMEOUT"
+
+    exhausted_turn = client.post(
+        "/api/interrogate", headers=headers, json={"question": "Extra question"}
+    )
+    assert exhausted_turn.status_code == 409
+    assert exhausted_turn.json()["detail"] == (
+        "Question limit reached. Reset the game to continue."
+    )
+
+    unchanged = client.get("/api/state", headers=headers).json()
+    assert unchanged["turn"] == server_module.MAX_TURNS
+    assert unchanged["prompts_left"] == 0
+    assert unchanged["status"] == "TIMEOUT"
+
+
 def test_session_store_expires_and_evicts_oldest(server_module):
     now = [0.0]
     store = server_module.SessionStore(

@@ -67,8 +67,10 @@ The browser creates an isolated, in-memory game session with `POST /api/session`
 and sends the returned identifier in the `X-Session-ID` header for state,
 interrogation, and reset requests. Sessions expire after four hours of inactivity,
 and the local server retains at most 100 sessions. Questions are limited to 500
-characters; missing sessions, blank questions, and oversized questions return 4xx
-responses. Restarting the Python server clears all sessions.
+characters, and the server enforces the 15-question game limit before accepting
+another interrogation. Missing sessions, blank or oversized questions, and
+questions after the limit return 4xx responses. Restarting the Python server clears
+all sessions.
 
 Run the offline API checks without a Gemini key:
 
